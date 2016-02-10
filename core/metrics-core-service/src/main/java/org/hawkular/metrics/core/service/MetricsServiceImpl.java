@@ -408,12 +408,26 @@ public class MetricsServiceImpl implements MetricsService {
                 // eventually want to implement more fine-grained error handling where we can
                 // notify the subscriber of what exactly fails.
                 List<Observable<ResultSet>> updates = new ArrayList<>();
-                updates.add(dataAccess.addDataRetention(metric));
-                updates.add(dataAccess.insertIntoMetricsTagsIndex(metric, metric.getTags()));
+                Observable<ResultSet> retentionResultSet = dataAccess.addDataRetention(metric);
+                retentionResultSet.subscribe(r -> {
+                    if (!r.wasApplied()) {
+                        subscriber.onError(new Exception());
+                    } else {
+                        updates.add(retentionResultSet);
+                        if (metric.getDataRetention() != null) {
+                            updates.add(updateRetentionsIndex(metric));
+                        }
+                    }
+                });
 
-                if (metric.getDataRetention() != null) {
-                    updates.add(updateRetentionsIndex(metric));
-                }
+                Observable<ResultSet> tagsResultSet = dataAccess.insertIntoMetricsTagsIndex(metric, metric.getTags());
+                tagsResultSet.subscribe(r -> {
+                    if(!r.wasApplied()) {
+                        subscriber.onError(new Exception());
+                    } else {
+                        updates.add(tagsResultSet);
+                    }
+                });
 
                 Observable.merge(updates).subscribe(new VoidSubscriber<>(subscriber));
             }
